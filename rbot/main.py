@@ -4,8 +4,8 @@
 import discord
 
 # Internal modules
-import utils
-from bot import Rbot
+import rbot.utils as utils
+from rbot.bot import Rbot
 
 
 LOGGER = utils.get_logger()

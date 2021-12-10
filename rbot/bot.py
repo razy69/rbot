@@ -8,8 +8,8 @@ import discord
 from discord.ext import commands
 
 # Internal modules
-from commands.roll import Roll
-from commands.clear import Clear
+from rbot.commands.roll import Roll
+from rbot.commands.clear import Clear
 
 
 INTENTS = discord.Intents.default()

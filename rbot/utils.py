@@ -5,7 +5,7 @@ from rich.logging import RichHandler
 import yaml
 
 
-def get_config(path: str = "../rbot-config.yaml") -> dict:
+def get_config(path: str = "./rbot-config.yaml") -> dict:
     with open(path, "r+") as _file:
         return yaml.safe_load(_file)
 
