@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 # Built-in modules
 import logging
 
@@ -17,6 +15,7 @@ INTENTS.members = True
 
 
 class Rbot(commands.Bot):
+    """Discord Bot."""
 
     def __init__(self, config: dict, logger: logging.Logger = None, command_prefix: str = "!", intents=INTENTS):
         super().__init__(self, intents=intents)
@@ -28,11 +27,12 @@ class Rbot(commands.Bot):
             self.logger = logger
 
     def setup(self):
-        """Register commands to the bot"""
+        """Register commands to the bot."""
         self.add_cog(Roll(self))
         self.add_cog(Clear(self))
 
     async def on_ready(self):
+        """Events once bot is in ready state."""
         server = discord.utils.get(iterable=self.guilds, name=self.config.get("discord_server", ""))
         self.logger.info(
             f"[bold green]Connected to discord ![/bold green]\r\n\r\n"
@@ -41,5 +41,5 @@ class Rbot(commands.Bot):
             f"server_name: {server.name}\r\n"
             f"server_id: {server.id}\r\n"
             f"---\r\n\r\n",
-            extra={"markup": True}
+            extra={"markup": True},
         )

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 # Built-in modules
 import random
 
@@ -8,16 +6,12 @@ from discord.ext import commands
 
 
 class Roll(commands.Cog):
-
     def __init__(self, bot):
         self.bot = bot
 
     @commands.command()
     async def roll(self, ctx, number_of_dice: int = 1):
-        dice = [
-            str(random.choice(range(1, 7)))
-            for _ in range(number_of_dice)
-        ]
+        dice = [str(random.choice(range(1, 7))) for _ in range(number_of_dice)]  # nosec
         await ctx.reply(", ".join(dice))
 
     @roll.error
