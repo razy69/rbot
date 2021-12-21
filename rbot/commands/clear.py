@@ -1,19 +1,28 @@
+# Built-in modules
+import logging
+
 # External modules
 from discord.ext import commands
 
+LOGGER = logging.getLogger("rich")
+
 
 class Clear(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+    """Rbot Clear command, you can get delete messages in a chan."""
+
+    def __init__(self):  # noqa:D107
+        LOGGER.debug("Clear command registered")
 
     @commands.command()
     @commands.has_permissions(manage_messages=True, read_message_history=True)
     async def clear(self, ctx, number: int = 10):
-        self.bot.logger.info(f"{ctx.author.name} deleted {number} messages from {ctx.channel.name}")
+        """Clear command."""
+        LOGGER.info(f"{ctx.author.name} deleted {number} messages from {ctx.channel.name}")
         await ctx.channel.purge(limit=number)
 
     @clear.error
     async def clear_error(self, ctx, error):
+        """Errors related to command."""
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.reply("ERROR: It misses the number of messages to delete, eg: !clear 23")
         if isinstance(error, commands.BadArgument):

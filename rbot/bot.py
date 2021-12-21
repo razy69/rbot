@@ -6,9 +6,8 @@ import discord
 from discord.ext import commands
 
 # Internal modules
-from rbot.commands.roll import Roll
 from rbot.commands.clear import Clear
-
+from rbot.commands.roll import Roll
 
 INTENTS = discord.Intents.default()
 INTENTS.members = True
@@ -17,7 +16,13 @@ INTENTS.members = True
 class Rbot(commands.Bot):
     """Discord Bot."""
 
-    def __init__(self, config: dict, logger: logging.Logger = None, command_prefix: str = "!", intents=INTENTS):
+    def __init__(
+        self,
+        config: dict,
+        logger: logging.Logger = None,
+        command_prefix: str = "!",
+        intents=INTENTS,
+    ):  # noqa:D107
         super().__init__(self, intents=intents)
         self.command_prefix = command_prefix
         self.config = config
@@ -28,8 +33,8 @@ class Rbot(commands.Bot):
 
     def setup(self):
         """Register commands to the bot."""
-        self.add_cog(Roll(self))
-        self.add_cog(Clear(self))
+        self.add_cog(Roll())
+        self.add_cog(Clear())
 
     async def on_ready(self):
         """Events once bot is in ready state."""
