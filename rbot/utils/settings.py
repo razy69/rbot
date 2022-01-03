@@ -10,11 +10,17 @@ class Settings(BaseSettings):
 
     name: str = "Rbot"
     debug: bool = False
+    discord_token: str = ""
+    discord_server: str = ""
+    status_chan: str = "général"
+    command_prefix: str = "!"
 
     class Config:
         """Configuration of Settings."""
 
         env_prefix = "rbot_"
+        env_file = ".config"
+        env_file_encoding = "utf-8"
 
 
 @lru_cache()
