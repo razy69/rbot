@@ -11,7 +11,7 @@ from rbot.bot.bot import start_bot
 from rbot.utils.settings import get_settings
 
 
-def _init_logger(lvl: int = logging.INFO, fmt: str = "%(message)s", date_fmt: str = "[%x]") -> None:
+def _init_logger(lvl: int = logging.INFO, fmt: str = "%(message)s", date_fmt: str = "[%Y-%m-%d %H:%M:%S]") -> None:
     logging.basicConfig(level=lvl, format=fmt, datefmt=date_fmt, handlers=[RichHandler(rich_tracebacks=True)])
 
 

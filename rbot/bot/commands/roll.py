@@ -1,18 +1,15 @@
 # Built-in modules
-import logging
 import random
 
 # External modules
 from discord.ext import commands
 
-LOGGER = logging.getLogger("rich")
+# Internal modules
+from rbot.bot.commands.base import Base
 
 
-class Roll(commands.Cog):
+class Roll(Base):
     """Rbot Roll command, you can get a dice roll using text chat."""
-
-    def __init__(self):  # noqa:D107
-        LOGGER.debug("Roll command registered")
 
     @commands.command(name="roll", help="Make a roll of x dice(s)")
     async def roll(self, ctx, number_of_dice: int = 1):

@@ -1,22 +1,18 @@
-# Built-in modules
-import logging
-
 # External modules
 import discord
 from discord.ext import commands
 
 # Internal modules
+from rbot.bot.commands.base import Base
 from rbot.utils.yt_player import YTDLSource
 
-LOGGER = logging.getLogger("rich")
 
-
-class Music(commands.Cog):
+class Music(Base):
     """Rbot Music stream music to a chan from youtube, or your computer."""
 
     def __init__(self, bot):  # noqa:D107
+        super().__init__()
         self.bot = bot
-        LOGGER.debug("Music command registered")
 
     @commands.command(name="stop", help="To make the bot leave the voice channel")
     @commands.has_permissions(administrator=True)

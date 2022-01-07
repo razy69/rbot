@@ -1,23 +1,17 @@
-# Built-in modules
-import logging
-
 # External modules
 from discord.ext import commands
 
-LOGGER = logging.getLogger("rich")
+# Internal modules
+from rbot.bot.commands.base import Base
 
 
-class Clear(commands.Cog):
+class Clear(Base):
     """Rbot Clear command, you can get delete messages in a chan."""
-
-    def __init__(self):  # noqa:D107
-        LOGGER.debug("Clear command registered")
 
     @commands.command(name="clear", help="Clear x messages from the current channel")
     @commands.has_permissions(manage_messages=True, read_message_history=True)
     async def clear(self, ctx, number: int = 10):
         """Clear command."""
-        LOGGER.info(f"{ctx.author.name} deleted {number} messages from {ctx.channel.name}")
         return await ctx.channel.purge(limit=number)
 
     @clear.error

@@ -5,11 +5,13 @@ import logging
 import discord
 from discord.ext import commands
 
-# Internal modules
-from rbot.utils.settings import get_settings
 from rbot.bot.commands.clear import Clear
+from rbot.bot.commands.history import History
 from rbot.bot.commands.music import Music
 from rbot.bot.commands.roll import Roll
+
+# Internal modules
+from rbot.utils.settings import get_settings
 
 LOGGER = logging.getLogger("rich")
 INTENTS = discord.Intents.default()
@@ -32,22 +34,22 @@ class Rbot(commands.Bot):
         self.add_cog(Roll())
         self.add_cog(Clear())
         self.add_cog(Music(bot=self))
+        self.add_cog(History(bot=self))
 
     async def on_ready(self):
         """Events once bot is in ready state."""
-        server = discord.utils.get(iterable=self.guilds, name=self.settings.discord_server)
+        self.guild = discord.utils.get(iterable=self.guilds, name=self.settings.discord_server)
         LOGGER.info(
             f"[bold green]Connected to discord ![/bold green]\r\n\r\n"
             f"---\r\n"
             f"bot_name: {self.user}\r\n"
-            f"server_name: {server.name}\r\n"
-            f"server_id: {server.id}\r\n"
+            f"guild_name: {self.guild.name}\r\n"
+            f"guild_id: {self.guild.id}\r\n"
             f"---\r\n\r\n",
             extra={"markup": True},
         )
-        for channel in server.text_channels:
-            if str(channel) == self.settings.status_chan:
-                await channel.send("Rbot activated.. 🚀")
+        status_chan = discord.utils.find(lambda chan: chan.name == self.settings.status_chan, self.guild.text_channels)
+        await status_chan.send("Rbot activated.. 🚀")
         await self.change_presence(status=discord.Status.idle)
 
 
