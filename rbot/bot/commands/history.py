@@ -1,5 +1,6 @@
 # Built-in modules
 import json
+from contextlib import suppress
 
 # External modules
 import discord
@@ -18,6 +19,7 @@ class History(Base):
 
     @commands.command(name="history", help="Save x lines of a channel")
     @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def history(self, ctx, channel: str, limit: int = 10000):
         """History command."""
         history: list = []
@@ -47,6 +49,9 @@ class History(Base):
     @history.error
     async def history_error(self, ctx, error):
         """Errors related to command."""
+        if isinstance(error, commands.NoPrivateMessage):
+            with suppress(discord.HTTPException):
+                return await ctx.reply("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.reply(
                 "ERROR: It misses the channel and/or the number of messages to save, eg: !history général 2",

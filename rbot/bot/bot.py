@@ -28,6 +28,7 @@ class Rbot(commands.Bot):
         super().__init__(self, intents=intents)
         self.settings = get_settings()
         self.command_prefix = self.settings.command_prefix
+        self.status_chan = None
 
     def setup(self):
         """Register commands to the bot."""
@@ -39,6 +40,10 @@ class Rbot(commands.Bot):
     async def on_ready(self):
         """Events once bot is in ready state."""
         self.guild = discord.utils.get(iterable=self.guilds, name=self.settings.discord_server)
+        self.status_chan = discord.utils.find(
+            lambda chan: chan.name == self.settings.status_chan,
+            self.guild.text_channels,
+        )
         LOGGER.info(
             f"[bold green]Connected to discord ![/bold green]\r\n\r\n"
             f"---\r\n"
@@ -48,9 +53,21 @@ class Rbot(commands.Bot):
             f"---\r\n\r\n",
             extra={"markup": True},
         )
-        status_chan = discord.utils.find(lambda chan: chan.name == self.settings.status_chan, self.guild.text_channels)
-        await status_chan.send("Rbot activated.. 🚀")
+        await self.status_chan.send("Rbot activated.. 🚀")
         await self.change_presence(status=discord.Status.idle)
+
+    async def async_cleanup(self):
+        """Cleanup things when bot is stopping."""
+        LOGGER.warning("Shutdown in progress..")
+        await self.status_chan.send("Bye bye.. 💔")
+        voice_client = discord.utils.get(self.voice_clients, guild=self.guild)
+        if voice_client and voice_client.is_connected():
+            await voice_client.disconnect()
+
+    async def close(self):
+        """Events if Rbot.run is over."""
+        await self.async_cleanup()
+        await super().close()
 
 
 def start_bot() -> None:

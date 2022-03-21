@@ -1,4 +1,8 @@
+# Built-in modules
+from contextlib import suppress
+
 # External modules
+from discord import HTTPException
 from discord.ext import commands
 
 # Internal modules
@@ -10,6 +14,7 @@ class Clear(Base):
 
     @commands.command(name="clear", help="Clear x messages from the current channel")
     @commands.has_permissions(manage_messages=True, read_message_history=True)
+    @commands.guild_only()
     async def clear(self, ctx, number: int = 10):
         """Clear command."""
         return await ctx.channel.purge(limit=number)
@@ -17,6 +22,9 @@ class Clear(Base):
     @clear.error
     async def clear_error(self, ctx, error):
         """Errors related to command."""
+        if isinstance(error, commands.NoPrivateMessage):
+            with suppress(HTTPException):
+                return await ctx.reply("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.reply("ERROR: It misses the number of messages to delete, eg: !clear 23")
         if isinstance(error, commands.BadArgument):

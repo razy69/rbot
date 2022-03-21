@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     discord_token: str = ""
     discord_server: str = ""
     status_chan: str = "général"
+    music_chan: str = "music"
     command_prefix: str = "!"
 
     class Config:

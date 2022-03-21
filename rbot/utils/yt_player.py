@@ -1,5 +1,6 @@
 # Built-in modules
 import asyncio
+from functools import partial
 
 # External modules
 import discord
@@ -27,19 +28,44 @@ ffmpeg_options = {
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
 
-class YTDLSource(discord.PCMVolumeTransformer):  # noqa:D101
-    def __init__(self, source, *, data, volume=0.5):
-        super().__init__(source, volume)
-        self.data = data
+class YTDLSource(discord.PCMVolumeTransformer):
+    """Create a discord.PCMVolumeTransformer using youtube_dl."""
+
+    def __init__(self, source, data, requester):
+        super().__init__(source)
+        self.requester = requester
         self.title = data.get("title")
-        self.url = data.get("url")
+        self.web_url = data.get("webpage_url")
+        # YTDL info dicts (data) have other useful information you might want
+        # https://github.com/rg3/youtube-dl/blob/master/README.md
+
+    def __getitem__(self, item: str):
+        """Allows us to access attributes similar to a dict.
+
+        This is only useful when you are NOT downloading.
+        """
+        return self.__getattribute__(item)
 
     @classmethod
-    async def from_url(cls, url, *, loop=None, stream=False):  # noqa:D102
+    async def create_source(cls, ctx, search: str, loop):
+        """Add `search` url to queue."""
         loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
+        to_run = partial(ytdl.extract_info, url=search, download=False)
+        data = await loop.run_in_executor(None, to_run)
         if "entries" in data:
             # take first item from a playlist
             data = data["entries"][0]
-        filename = data["url"] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)  # noqa: F821
+        await ctx.send(f'```ini\n[Added {data["title"]} to the Queue.]\n```')
+        return {"webpage_url": data["webpage_url"], "requester": ctx.author, "title": data["title"]}
+
+    @classmethod
+    async def regather_stream(cls, data, loop):
+        """Used for preparing a stream.
+
+        Since Youtube Streaming links expire.
+        """
+        loop = loop or asyncio.get_event_loop()
+        requester = data["requester"]
+        to_run = partial(ytdl.extract_info, url=data["webpage_url"], download=False)
+        data = await loop.run_in_executor(None, to_run)
+        return cls(discord.FFmpegPCMAudio(data["url"]), data=data, requester=requester)
