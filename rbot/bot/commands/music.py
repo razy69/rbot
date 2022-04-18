@@ -2,6 +2,7 @@
 import asyncio
 import itertools
 from contextlib import suppress
+from datetime import datetime
 
 # External modules
 import discord
@@ -10,8 +11,11 @@ from discord.ext import commands
 
 # Internal modules
 from rbot.bot.commands.base import Base
+from rbot.utils.settings import get_settings
 from rbot.utils.yt_player import YTDLSource
 
+
+MUSIC_ROLE = get_settings().music_role
 
 class MusicPlayer(commands.Cog):
     """A class which is assigned to each guild using the bot for Music.
@@ -29,9 +33,9 @@ class MusicPlayer(commands.Cog):
         self.queue = asyncio.Queue()
         self.next = asyncio.Event()
         self.np = None  # Now playing message
-        self.volume = 0.5
+        self.volume = 1
         self.current = None
-        ctx.bot.loop.create_task(self.player_loop())
+        self.bot.loop.create_task(self.player_loop())
 
     async def player_loop(self):
         """Our main player loop."""
@@ -59,14 +63,19 @@ class MusicPlayer(commands.Cog):
                     name=f"🎵 {source.title} 🎵",
                 ),
             )
-            self.np = await self._channel.send(
-                f"**Now Playing:** `{source.title}` requested by " f"`{source.requester}`",
+            embed = discord.Embed(
+                title="Now Playing",
+                description=f"[{source.title}]({source.webpage_url}) - {source.duration}",
+                color=discord.Color.green(),
             )
+            embed.set_thumbnail(url=source.thumbnail)
+            embed.timestamp = datetime.now()
+            self.np = await self._channel.send(embed=embed)
             await self.next.wait()
             # Make sure the FFmpeg process is cleaned up.
             source.cleanup()
             self.current = None
-            with suppress(discord.HTTPException):
+            with suppress(discord.HTTPException, discord.NotFound):
                 # We are no longer playing this song...
                 await self.np.delete()
 
@@ -76,26 +85,34 @@ class MusicPlayer(commands.Cog):
 
 
 class Music(Base):
-    """Rbot Music stream music to a chan from youtube, or your computer."""
+    """Rbot Music stream music to a chan from youtube."""
 
     def __init__(self, bot):  # noqa:D107
         super().__init__()
         self.bot = bot
-        self.players: dict = {}
+        self.player: MusicPlayer = None
+        self.playlist = None
 
     def get_player(self, ctx) -> MusicPlayer:
         """Retrieve the guild player, or generate one."""
-        if not self.players.get(ctx.guild.id, None):
-            self.players[ctx.guild.id] = MusicPlayer(ctx)
-        return self.players[ctx.guild.id]
+        if not self.player:
+            self.player = MusicPlayer(ctx)
+        return self.player
 
     async def cleanup(self, guild):
         """Cleanup bot, disconnect it and properly remove player."""
-        with suppress(AttributeError):
+        self.logger.info("Cleanup Music Player")
+        await self.bot.change_presence(status=discord.Status.idle)
+        if isinstance(self.playlist, discord.Message):
+            with suppress(discord.HTTPException, discord.NotFound):
+                await self.playlist.delete()
+        if isinstance(self.player.np, discord.Message):
+            with suppress(discord.HTTPException, discord.NotFound):
+                await self.player.np.delete()
+        if isinstance(self.player, MusicPlayer):
+            self.player = None
+        if isinstance(guild.voice_client, discord.VoiceProtocol):
             await guild.voice_client.disconnect()
-        with suppress(KeyError):
-            del self.players[guild.id]
-        return await self.bot.change_presence(status=discord.Status.idle)
 
     def is_invoked_in_music_chan(ctx):  # noqa: N805
         """Check if command has been invoked in the right chan."""
@@ -105,7 +122,7 @@ class Music(Base):
 
     @commands.command(name="play", aliases=["yt", "pl"], help="Play a song from Youtube url")
     @commands.check(is_invoked_in_music_chan)
-    @commands.has_permissions(administrator=True)
+    @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def play(self, ctx, search: str):
         """Play the given youtube url.
@@ -114,6 +131,8 @@ class Music(Base):
             ctx (context): discord.ext.commands.Context
             search (str): Url of a Youtube video.
         """
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
         player = self.get_player(ctx)
         source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop)
         return await player.queue.put(source)
@@ -123,194 +142,202 @@ class Music(Base):
         """Errors related to `play` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingRequiredArgument):
-            return await ctx.reply("ERROR: It misses the the url")
+            return await ctx.send("ERROR: It misses the the url")
         if isinstance(error, commands.BadArgument):
-            return await ctx.reply(f"ERROR: Bad argument -> {error}")
+            return await ctx.send(f"ERROR: Bad argument -> {error}")
         if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
     @commands.command(name="pause", aliases=["pa"], help="Pause music")
-    @commands.has_permissions(administrator=True)
+    @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def pause(self, ctx):
         """Pause the currently playing song."""
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
         if ctx.voice_client.is_paused():
-            return await ctx.reply(f"**`{ctx.author.name}`**: Error player is already paused!")
+            return await ctx.send(f"**`{ctx.author.name}`**: Player is already paused !")
+        player = self.get_player(ctx)
         ctx.voice_client.pause()
-        return await ctx.reply(f"**`{ctx.author.name}`**: Paused the song!")
+        return await ctx.send(f"**`{ctx.author.name}`**: Paused `{player.current.title}`")
 
     @pause.error
     async def pause_error(self, ctx, error):
         """Errors related to `pause` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingPermissions):
-            await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
     @commands.command(name="resume", aliases=["unpause", "res"], help="Resume music")
-    @commands.has_permissions(administrator=True)
+    @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def resume(self, ctx):
         """Resume the currently paused song."""
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
         if not ctx.voice_client.is_paused():
-            return await ctx.reply(f"**`{ctx.author.name}`**: Error player is not paused!")
+            return await ctx.send(f"**`{ctx.author.name}`**: Player is not paused !")
+        player = self.get_player(ctx)
         ctx.voice_client.resume()
-        return await ctx.reply(f"**`{ctx.author.name}`**: Resumed the song!")
+        return await ctx.send(f"**`{ctx.author.name}`**: Resumed `{player.current.title}`")
 
     @resume.error
     async def resume_error(self, ctx, error):
         """Errors related to `resume` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
-    @commands.command(name="skip", aliases=["skp"], help="Play next music in the list")
-    @commands.has_permissions(administrator=True)
+    @commands.command(name="skip", aliases=["skp", "next"], help="Play next music in the list")
+    @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def skip(self, ctx):
         """Skip the song."""
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
         if ctx.voice_client.is_paused():
             pass
         elif not ctx.voice_client.is_playing():
-            return await ctx.reply(f"**`{ctx.author.name}`**: Player is not playing a song!")
+            return await ctx.send(f"**`{ctx.author.name}`**: Player is not playing a song!")
+        player = self.get_player(ctx)
         ctx.voice_client.stop()
-        return await ctx.reply(f"**`{ctx.author.name}`**: Skipped the song!")
+        return await ctx.send(f"**`{ctx.author.name}`**: Skipped `{player.current.title}`")
 
     @skip.error
     async def skip_error(self, ctx, error):
         """Errors related to `skip` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
-
-    @commands.command(name="queue", aliases=["ql", "playlist", "playlst"], help="Show next songs")
-    @commands.guild_only()
-    async def queue(self, ctx):
-        """Retrieve a basic queue of upcoming songs."""
-        player = self.get_player(ctx)
-        if player.queue.empty():
-            return await ctx.reply("There are currently no more queued songs.")
-        # Grab up to 5 entries from the queue...
-        upcoming = list(itertools.islice(player.queue._queue, 0, 9))
-        fmt = "\n".join(f'**`{_["title"]}`**' for _ in upcoming)
-        embed = discord.Embed(title=f"Playlist - Next {len(upcoming)} Songs", description=fmt)
-        return await ctx.reply(embed=embed)
-
-    @queue.error
-    async def queue_error(self, ctx, error):
-        """Errors related to `queue` command."""
-        if isinstance(error, commands.NoPrivateMessage):
-            with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
-        if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
     @commands.command(name="now", aliases=["np", "current", "currentsong", "playing"], help="Show current music")
-    @commands.has_permissions(administrator=True)
+    @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def now(self, ctx):
         """Display information about the currently playing song."""
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
         player = self.get_player(ctx)
         if not player.current:
-            return await ctx.reply("No music currently playing !")
-        with suppress(discord.HTTPException):
+            return await ctx.send("No music currently playing !")
+        with suppress(discord.HTTPException, discord.NotFound):
             # Remove our previous now_playing message.
             await player.np.delete()
-        return await ctx.reply(
-            f"**Now Playing:** `{ctx.voice_client.source.title}` requested by `{ctx.voice_client.source.requester}`",
+        embed = discord.Embed(
+            title="Now Playing",
+            description=f"[{player.current.title}]({player.current.webpage_url}) - {player.current.duration}",
+            color=discord.Color.green(),
         )
+        embed.set_thumbnail(url=player.current.thumbnail)
+        embed.timestamp = datetime.now()
+        player.np = await ctx.send(embed=embed)
+        return player.np
 
     @now.error
     async def now_error(self, ctx, error):
         """Errors related to `now` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
-    @commands.command(name="volume", aliases=["vol"], help="Change bot volume")
-    @commands.has_permissions(administrator=True)
+    @commands.command(name="queue", aliases=["ql", "playlist", "playlst"], help="Show next songs")
     @commands.guild_only()
-    async def volume(self, ctx, vol: float):
-        """Command to set volume.
-
-        Args:
-            ctx (context): discord.ext.commands.Context
-            vol (float): Volume in %, must be a value between 1 and 100
-        """
-        if not 0 < vol < 101:
-            return await ctx.reply("Please enter a value between 1 and 100.")
+    async def queue(self, ctx):
+        """Retrieve a basic queue of upcoming songs."""
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
         player = self.get_player(ctx)
-        if ctx.voice_client.source:
-            ctx.voice_client.source.volume = vol / 100
-        player.volume = vol / 100
-        embed = discord.Embed(title="Volume Message", description=f"The Volume Was Changed By **{ctx.author.name}**")
-        embed.add_field(name="Current Volume", value=vol, inline=True)
-        return await ctx.reply(embed=embed)
+        if player.queue.empty():
+            upcoming = []
+        else:
+            upcoming = list(itertools.islice(player.queue._queue, 0, 9))
+        if not upcoming:
+            desc = "No other music in the playlist."
+        elif len(upcoming) == 1:
+            desc = "1 music left in the playlist."
+        else:
+            desc = f"There are {len(upcoming)} musics in the queue."
+        embed = discord.Embed(
+            title="Music Playlist",
+            description=desc,
+            color=discord.Color.red(),
+        )
+        embed.set_thumbnail(url="https://upload.wikimedia.org/wikipedia/commons/d/d8/YouTubeMusic_Logo.png")
+        embed.timestamp = datetime.now()
+        for music in upcoming:
+            embed.add_field(
+                name=f"{music['title']} - {music['duration']}",
+                value=f"{music['webpage_url']}",
+                inline=False,
+            )
+        if self.playlist:
+            with suppress(discord.HTTPException, discord.NotFound):
+                await self.playlist.delete()
+        self.playlist = await ctx.send(embed=embed)
+        await self.now(ctx)
 
-    @volume.error
-    async def volume_error(self, ctx, error):
-        """Errors related to `volume` command."""
+    @queue.error
+    async def queue_error(self, ctx, error):
+        """Errors related to `queue` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
     @commands.command(name="stop", aliases=["stp"], help="To make the bot leave the voice channel")
-    @commands.has_permissions(administrator=True)
+    @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def stop(self, ctx):
         """Stop command."""
-        self.cleanup(ctx.guild)
-        await ctx.reply(f"{ctx.author.name} stopped the Music player")
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
+        await self.cleanup(ctx.guild)
+        await ctx.send(f"{ctx.author.name} stopped the Music player")
 
     @stop.error
     async def stop_error(self, ctx, error):
         """Errors related to `stop` command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
-                return await ctx.reply("This command can not be used in Private Messages.")
+                return await ctx.send("This command can not be used in Private Messages.")
         if isinstance(error, commands.MissingPermissions):
-            return await ctx.reply("ERROR: You don't have the right permissions to do that")
-        return await ctx.reply(f"ERROR: {error}")
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
 
     @pause.before_invoke
     async def ensure_playing(self, ctx):
         """Ensure bot is connected and playing a music."""
         await self.ensure_voice(ctx)
         if not ctx.voice_client.is_playing():
-            await ctx.reply("No music is playing.")
             raise commands.CommandError("Bot is not playing a music.")
 
     @play.before_invoke
     @resume.before_invoke
     @skip.before_invoke
     @queue.before_invoke
-    @now.before_invoke
-    @volume.before_invoke
     @stop.before_invoke
-    async def ensure_voice(self, ctx):
+    async def ensure_voice(self, ctx) -> None:
         """Ensure bot is connected to a channel before playing a music."""
         if ctx.voice_client is not None and ctx.voice_client.is_connected():
             return
         if ctx.author.voice:
             await ctx.author.voice.channel.connect()
-        else:
-            await ctx.reply("You are not connected to a voice channel.")
-            raise commands.CommandError(f"{ctx.author.name} not connected to a voice channel.")
+            return
+        raise commands.CommandError(f"{ctx.author.name} not connected to a voice channel.")

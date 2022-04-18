@@ -12,8 +12,9 @@ class Settings(BaseSettings):
     debug: bool = False
     discord_token: str = ""
     discord_server: str = ""
-    status_chan: str = "général"
+    status_chan: str = "bot-status"
     music_chan: str = "music"
+    music_role: str = "dj"
     command_prefix: str = "!"
 
     class Config:

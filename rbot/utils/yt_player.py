@@ -1,5 +1,6 @@
 # Built-in modules
 import asyncio
+from datetime import datetime, timedelta
 from functools import partial
 
 # External modules
@@ -19,6 +20,7 @@ ytdl_format_options = {
     "quiet": True,
     "no_warnings": True,
     "default_search": "auto",
+    "retries": 10,
     "source_address": "0.0.0.0",  # nosec
 }
 ffmpeg_options = {
@@ -33,9 +35,11 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
     def __init__(self, source, data, requester):
         super().__init__(source)
+        self.webpage_url = data.get("webpage_url")
         self.requester = requester
         self.title = data.get("title")
-        self.web_url = data.get("webpage_url")
+        self.duration = str(timedelta(seconds=data.get("duration")))
+        self.thumbnail = data.get("thumbnail")
         # YTDL info dicts (data) have other useful information you might want
         # https://github.com/rg3/youtube-dl/blob/master/README.md
 
@@ -55,8 +59,21 @@ class YTDLSource(discord.PCMVolumeTransformer):
         if "entries" in data:
             # take first item from a playlist
             data = data["entries"][0]
-        await ctx.send(f'```ini\n[Added {data["title"]} to the Queue.]\n```')
-        return {"webpage_url": data["webpage_url"], "requester": ctx.author, "title": data["title"]}
+        embed = discord.Embed(
+            title=f"Music added by {ctx.author}",
+            description=f"[{data['title']}]({data['webpage_url']}) - {str(timedelta(seconds=data['duration']))}",
+            color=discord.Color.blue(),
+        )
+        embed.set_thumbnail(url=data["thumbnail"])
+        embed.timestamp = datetime.now()
+        await ctx.send(embed=embed)
+        return {
+            "webpage_url": data["webpage_url"],
+            "requester": ctx.author,
+            "title": data["title"],
+            "duration": str(timedelta(seconds=data["duration"])),
+            "thumbnail": data["thumbnail"],
+        }
 
     @classmethod
     async def regather_stream(cls, data, loop):

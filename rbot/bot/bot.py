@@ -7,7 +7,7 @@ from discord.ext import commands
 
 from rbot.bot.commands.clear import Clear
 from rbot.bot.commands.history import History
-from rbot.bot.commands.music import Music
+from rbot.bot.commands.music import Music, MusicPlayer
 from rbot.bot.commands.roll import Roll
 
 # Internal modules
@@ -28,6 +28,7 @@ class Rbot(commands.Bot):
         super().__init__(self, intents=intents)
         self.settings = get_settings()
         self.command_prefix = self.settings.command_prefix
+        self.guild = None
         self.status_chan = None
 
     def setup(self):
@@ -53,16 +54,15 @@ class Rbot(commands.Bot):
             f"---\r\n\r\n",
             extra={"markup": True},
         )
-        await self.status_chan.send("Rbot activated.. 🚀")
+        await self.status_chan.send("Rbot activated.. 🚀\r\nHello !")
         await self.change_presence(status=discord.Status.idle)
 
     async def async_cleanup(self):
         """Cleanup things when bot is stopping."""
         LOGGER.warning("Shutdown in progress..")
+        if self.cogs["Music"] and isinstance(self.cogs["Music"].player, MusicPlayer):
+            await self.cogs["Music"].player.destroy(self.guild)
         await self.status_chan.send("Bye bye.. 💔")
-        voice_client = discord.utils.get(self.voice_clients, guild=self.guild)
-        if voice_client and voice_client.is_connected():
-            await voice_client.disconnect()
 
     async def close(self):
         """Events if Rbot.run is over."""
