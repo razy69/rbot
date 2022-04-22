@@ -8,6 +8,7 @@ from datetime import datetime
 import discord
 from async_timeout import timeout
 from discord.ext import commands
+from youtubesearchpython import VideosSearch
 
 # Internal modules
 from rbot.bot.commands.base import Base
@@ -120,12 +121,93 @@ class Music(Base):
             raise commands.UserInputError(f"You have to run command in the {ctx.bot.settings.music_chan} channel")
         return True
 
+    def gen_yt_select_menu(self, search: str) -> discord.SelectMenu:
+        """Generate a discord.SelectMenu using Youtube search results from youtubesearchpython."""
+        videos_search = VideosSearch(search, limit = 10).result()
+        videos_search = videos_search.get("result", [])
+        emojis=["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        results = [
+            discord.SelectOption(
+                label=f"{video.get('title', '')}"[:25],
+                description=f"{video.get('duration', '')} - {video.get('publishedTime', '')} - {video.get('viewCount', {}).get('short', '')} - {video.get('channel', {}).get('name')}"[:50],
+                value=video.get("link", ""),
+                emoji=emojis[i],
+            )
+            for i, video in enumerate(videos_search)
+        ]
+        results.append(
+            discord.SelectOption(
+                label="Quit",
+                description="Stop your current search",
+                value="_quit",
+                emoji="❌",
+            )
+        )
+        select_menu = discord.SelectMenu(
+            custom_id="select_yt_result",
+            options=results,
+            placeholder="Select a song",
+            max_values=1,
+            min_values=1,
+        )
+        return select_menu
+
+    @commands.command(name="search", aliases=["s"], help="Search a music from Youtube and play it !")
+    @commands.check(is_invoked_in_music_chan)
+    @commands.has_role(MUSIC_ROLE)
+    @commands.guild_only()
+    async def search(self, ctx, search: str, *args):
+        """
+        Play the given youtube search.
+
+        Args:
+            ctx (context): discord.ext.commands.Context
+            search (str): a text to search a Youtube video.
+        """
+        _args = [arg for arg in args]
+        if _args:
+            search = f"{search.strip()} {' '.join(_args)}"
+        self.logger.info("Search query: %s", search)
+        select_songs = self.gen_yt_select_menu(search)
+        msg_with_selects = await ctx.reply(
+            title=f"Youtube search results for {search}:",
+            components=[[select_songs]]
+        )
+
+        def check_selection(i: discord.Interaction, select_menu):
+            return i.author == ctx.author and i.message == msg_with_selects
+
+        _, select_menu = await self.bot.wait_for('selection_select', check=check_selection)
+        with suppress(discord.HTTPException, discord.NotFound):
+            await ctx.message.delete()
+            await msg_with_selects.delete()
+        if select_menu.values[0] == "_quit":
+            return
+        player = self.get_player(ctx)
+        source = await YTDLSource.create_source(ctx, search=select_menu.values[0], loop=self.bot.loop)
+        return await player.queue.put(source)
+    
+    @search.error
+    async def search_error(self, ctx, error):
+        """Errors related to `search` command."""
+        if isinstance(error, commands.NoPrivateMessage):
+            with suppress(discord.HTTPException):
+                return await ctx.send("This command can not be used in Private Messages.")
+        if isinstance(error, commands.MissingRequiredArgument):
+            return await ctx.send("ERROR: It misses the the url")
+        if isinstance(error, commands.BadArgument):
+            return await ctx.send(f"ERROR: Bad argument -> {error}")
+        if isinstance(error, commands.MissingPermissions):
+            return await ctx.send("ERROR: You don't have the right permissions to do that")
+        return await ctx.send(f"ERROR: {error}")
+        
     @commands.command(name="play", aliases=["yt", "pl"], help="Play a song from Youtube url")
     @commands.check(is_invoked_in_music_chan)
     @commands.has_role(MUSIC_ROLE)
     @commands.guild_only()
     async def play(self, ctx, search: str):
-        """Play the given youtube url.
+        """
+        Play the given youtube url.
 
         Args:
             ctx (context): discord.ext.commands.Context
@@ -328,6 +410,7 @@ class Music(Base):
         if not ctx.voice_client.is_playing():
             raise commands.CommandError("Bot is not playing a music.")
 
+    @search.before_invoke
     @play.before_invoke
     @resume.before_invoke
     @skip.before_invoke
