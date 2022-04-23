@@ -15,12 +15,12 @@ class History(Base):
 
     def __init__(self, bot):
         super().__init__()
-        self.bot = bot
+        self.bot: commands.Bot = bot
 
     @commands.command(name="history", help="Save x lines of a channel")
     @commands.has_permissions(administrator=True)
     @commands.guild_only()
-    async def history(self, ctx, channel: str, limit: int = 10000):
+    async def history(self, ctx: commands.Context, channel: str, limit: int = 10000) -> discord.Message:
         """History command."""
         history: list = []
         with suppress(discord.HTTPException, discord.NotFound):
@@ -49,7 +49,7 @@ class History(Base):
         )
 
     @history.error
-    async def history_error(self, ctx, error):
+    async def history_error(self, ctx: commands.Context, error: Exception) -> discord.Message:
         """Errors related to command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
@@ -63,6 +63,6 @@ class History(Base):
         return await ctx.send(f"ERROR: {error}")
 
     @staticmethod
-    async def _to_json(data, path: str = "./history.json"):
+    async def _to_json(data: list, path: str = "./history.json") -> None:
         with open(path, "w+", encoding="utf-8") as _file:
-            return json.dump(data, _file, ensure_ascii=False, indent=4)
+            json.dump(data, _file, ensure_ascii=False, indent=4)

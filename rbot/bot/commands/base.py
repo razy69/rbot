@@ -15,7 +15,7 @@ class Base(commands.Cog):
             self.logger = logging.getLogger("rich")
         self.logger.debug("%s command registered", self.__class__.__name__)
 
-    async def cog_after_invoke(self, ctx):
+    async def cog_after_invoke(self, ctx: commands.Context) -> None:
         """Action run after each cog invoke."""
         params = ctx.args[2:]
         self.logger.info(f"Command '{ctx.invoked_with}' has been executed by '{ctx.author.name}' with {params=}")

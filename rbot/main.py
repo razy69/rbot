@@ -15,7 +15,7 @@ def _init_logger(lvl: int = logging.INFO, fmt: str = "%(message)s", date_fmt: st
     logging.basicConfig(level=lvl, format=fmt, datefmt=date_fmt, handlers=[RichHandler(rich_tracebacks=True)])
 
 
-def main():
+def main() -> None:
     settings = get_settings()
     _init_logger(lvl=logging.DEBUG) if settings.debug else _init_logger(lvl=logging.INFO)
     logger = logging.getLogger("rich")

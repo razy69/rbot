@@ -14,7 +14,7 @@ class Roll(Base):
     """Rbot Roll command, you can get a dice roll using text chat."""
 
     @commands.command(name="roll", help="Make a roll of x dice(s)")
-    async def roll(self, ctx, number_of_dice: int = 1):
+    async def roll(self, ctx: commands.Context, number_of_dice: int = 1) -> discord.Message:
         """Roll command."""
         with suppress(discord.HTTPException, discord.NotFound):
             await ctx.message.delete()
@@ -22,7 +22,7 @@ class Roll(Base):
         return await ctx.send(f"{ctx.author.name} throws {number_of_dice} dice(s): {', '.join(dice)}")
 
     @roll.error
-    async def roll_error(self, ctx, error):
+    async def roll_error(self, ctx: commands.Context, error: Exception) -> discord.Message:
         """Errors related to command."""
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.send("ERROR: It misses the number of dices to roll, eg: !roll 2")

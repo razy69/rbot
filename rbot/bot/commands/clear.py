@@ -15,14 +15,14 @@ class Clear(Base):
     @commands.command(name="clear", help="Clear x messages from the current channel")
     @commands.has_permissions(manage_messages=True, read_message_history=True)
     @commands.guild_only()
-    async def clear(self, ctx, number: int = 10):
+    async def clear(self, ctx: commands.Context, number: int = 10) -> None:
         """Clear command."""
         with suppress(discord.HTTPException, discord.NotFound):
             await ctx.message.delete()
-        return await ctx.channel.purge(limit=number)
+        await ctx.channel.purge(limit=number)
 
     @clear.error
-    async def clear_error(self, ctx, error):
+    async def clear_error(self, ctx: commands.Context, error: Exception) -> discord.Message:
         """Errors related to command."""
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
