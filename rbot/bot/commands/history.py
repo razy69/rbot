@@ -1,5 +1,6 @@
 # Built-in modules
 import json
+import traceback
 from contextlib import suppress
 
 # External modules
@@ -51,6 +52,7 @@ class History(Base):
     @history.error
     async def history_error(self, ctx: commands.Context, error: Exception) -> discord.Message:
         """Errors related to command."""
+        self.logger.error("Exception in history: %s", traceback.format_exc())
         if isinstance(error, commands.NoPrivateMessage):
             with suppress(discord.HTTPException):
                 return await ctx.send("This command can not be used in Private Messages.")

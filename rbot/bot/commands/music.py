@@ -142,8 +142,10 @@ class MusicPlayer(commands.Cog):
                     # Wait for the next song. If we timeout cancel the player and disconnect...
                     async with timeout(300):
                         source = await self.queue.get()
+                        self.logger.info("source state in queue: %s", source)
                 except asyncio.TimeoutError:
-                    self.logger.info("Player destroyed because no music to player for more than 10s")
+                    self.logger.info("Player destroyed because no music in player queue for more than 300s")
+                    self.logger.debug("TimeouError in player_loop self.queue.get(): %s", traceback.format_exc())
                     self.destroy(self._guild)
                     return
             if not isinstance(source, YTDLSource):
@@ -153,6 +155,7 @@ class MusicPlayer(commands.Cog):
                     self.logger.error("Exception in player_loop: %s", traceback.format_exc())
                     await self._channel.send(f"There was an error processing your song.\n" f"```css\n[{err}]\n```")
                     continue
+            self.logger.info("source state: %s", source)
             source.volume = self.volume
             self.current = source
             self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))

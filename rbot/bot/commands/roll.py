@@ -1,5 +1,6 @@
 # Built-in modules
 import random
+import traceback
 from contextlib import suppress
 
 # External modules
@@ -24,6 +25,7 @@ class Roll(Base):
     @roll.error
     async def roll_error(self, ctx: commands.Context, error: Exception) -> discord.Message:
         """Errors related to command."""
+        self.logger.error("Exception in roll: %s", traceback.format_exc())
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.send("ERROR: It misses the number of dices to roll, eg: !roll 2")
         if isinstance(error, commands.BadArgument):
