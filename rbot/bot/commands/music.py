@@ -5,16 +5,13 @@ import logging
 import re
 import traceback
 from contextlib import suppress
-from datetime import datetime
 from typing import Optional
 
 # External modules
 import discord
 import pytz
-import youtube_dl
 from async_timeout import timeout
 from discord.ext import commands
-from retrying import retry
 from youtubesearchpython import VideosSearch
 
 # Internal modules
@@ -26,11 +23,7 @@ MUSIC_ROLE = get_settings().music_role
 YT_URL_RE = re.compile("^http(|s)://(www|m|).youtu(.be|be.com)/watch.+$")
 TZ = pytz.timezone("Europe/Paris")
 EMOJI_NUMBERS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-
-
-def retry_if_exception(exception):
-    """Retry if compat_HTTPError is raised."""
-    return isinstance(exception, youtube_dl.compat.compat_HTTPError)
+DISK_ICON = "https://www.pngplay.com/wp-content/uploads/3/Disque-Vinyle-Transparentes-Fond-PNG.png"
 
 
 class MusicPlayer(commands.Cog):
@@ -52,19 +45,35 @@ class MusicPlayer(commands.Cog):
         self.np: Optional[discord.Message] = None  # Now playing message
         self.volume: int = 1
         self.current: Optional[YTDLSource] = None
-        self.player_is_paused = False
+        self.timer: int = 0
         self.bot.loop.create_task(self.player_loop())
 
-    def player_embed(self, title: str = "Now Playing", color: discord.Color = None) -> Optional[discord.Embed]:
+    @staticmethod
+    def hh_mm_ss_to_sec(time_str: str) -> int:
+        """Get seconds from time."""
+        hours, minutes, seconds = time_str.split(':')
+        return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+
+    @staticmethod
+    def sec_to_hh_mm_ss(seconds: int) -> str:
+        """Dummy time converter using divmod."""
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}:{minutes:0>2}:{seconds:0>2}"
+
+    def player_embed(self) -> Optional[discord.Embed]:
         """Return a player embed, to be send in a discord.TextChannel."""
-        if not color:
-            color = discord.Color.green()
-        source = self.current
-        if not source:
+        if self.current is None or not isinstance(self.current, YTDLSource):
             return None
+        if self._guild.voice_client.is_paused():
+            title = "Music Paused"
+            color = discord.Color.light_grey()
+        else:
+            title = "Now Playing"
+            color = discord.Color.green()
         embed = discord.Embed(
             title=title,
-            description=f"[{source.title}]({source.webpage_url}) - {source.duration}",
+            description=f"[{self.current.title}]({self.current.webpage_url}) - {self.current.duration}",
             color=color,
         )
         upcoming = self.get_queue()
@@ -80,24 +89,33 @@ class MusicPlayer(commands.Cog):
                     value=f"{music['webpage_url']}",
                     inline=False,
                 )
-        embed.set_thumbnail(url=source.thumbnail)
-        embed.timestamp = datetime.now(tz=TZ)
+            embed.add_field(
+                name="____",
+                value="Current song:",
+                inline=False,
+            )
+        embed.set_thumbnail(url=self.current.thumbnail)
+        embed.set_footer(
+            text=f"{MusicPlayer.sec_to_hh_mm_ss(self.timer)} / {self.current.duration}",
+            icon_url=DISK_ICON,
+        )
         return embed
 
     def player_components(self) -> list:
         """Button for the player."""
+        is_paused = self._guild.voice_client.is_paused()
         return [
             discord.ActionRow(
                 discord.Button(
                     label="Play",
                     custom_id="player_play_button",
                     style=discord.ButtonStyle.green,
-                ).disable_if(not self.player_is_paused),
+                ).disable_if(not is_paused),
                 discord.Button(
                     label="Pause",
                     custom_id="player_pause_button",
                     style=discord.ButtonStyle.grey,
-                ).disable_if(self.player_is_paused),
+                ).disable_if(is_paused),
                 discord.Button(
                     label="Stop",
                     custom_id="player_stop_button",
@@ -131,23 +149,44 @@ class MusicPlayer(commands.Cog):
         components = self.player_components()
         self.np = await self._channel.send(embed=embed, components=components)
 
+    async def update_timer(self):
+        """
+        Update footer of player.
+
+        Use a timer to represent current playing music time and await next song in queue.
+        """
+        while not self.next._value:
+            self.logger.debug("Player is paused, not updating timer")
+            if self._guild.voice_client is None or not isinstance(self._guild.voice_client, discord.VoiceProtocol):
+                break
+            if not self._guild.voice_client.is_paused():
+                self.timer += 1
+            timer_str = MusicPlayer.sec_to_hh_mm_ss(self.timer)
+            embed = self.player_embed()
+            if not embed:
+                continue
+            components = self.player_components()
+            embed.set_footer(text=f"{timer_str} / {self.current.duration}", icon_url=DISK_ICON)
+            if isinstance(self.np, discord.Message):
+                with suppress(discord.HTTPException, discord.NotFound):
+                    await self.np.edit(embed=embed, components=components)
+            await asyncio.sleep(0.8)
+
     async def player_loop(self) -> None:
         """Main player loop."""
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
-            source: Optional[YTDLSource] = None
             self.next.clear()
-            if not self.current:
-                try:
-                    # Wait for the next song. If we timeout cancel the player and disconnect...
-                    async with timeout(300):
-                        source = await self.queue.get()
-                        self.logger.info("source state in queue: %s", source)
-                except asyncio.TimeoutError:
-                    self.logger.info("Player destroyed because no music in player queue for more than 300s")
-                    self.logger.debug("TimeouError in player_loop self.queue.get(): %s", traceback.format_exc())
-                    self.destroy(self._guild)
-                    return
+            self.timer = 0
+            try:
+                # Wait for the next song. If we timeout cancel the player and disconnect...
+                async with timeout(300):
+                    source = await self.queue.get()
+                    self.logger.debug("source state in queue: %s", source)
+            except asyncio.TimeoutError:
+                self.logger.info("Player destroyed because no music in player queue for more than 300s")
+                self.destroy(self._guild)
+                return
             if not isinstance(source, YTDLSource):
                 try:
                     source = await YTDLSource.regather_stream(source, self.bot.loop)
@@ -155,12 +194,12 @@ class MusicPlayer(commands.Cog):
                     self.logger.error("Exception in player_loop: %s", traceback.format_exc())
                     await self._channel.send(f"There was an error processing your song.\n" f"```css\n[{err}]\n```")
                     continue
-            self.logger.info("source state: %s", source)
+            self.logger.debug("source state: %s", source)
             source.volume = self.volume
             self.current = source
             self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
             await self.now_playing()
-            await self.next.wait()
+            await self.update_timer()
             # Make sure the FFmpeg process is cleaned up.
             source.cleanup()
             self.current = None
@@ -175,18 +214,17 @@ class MusicPlayer(commands.Cog):
         if self._guild.voice_client.is_paused():
             return
         self._guild.voice_client.pause()
-        self.player_is_paused = True
 
     def resume(self) -> None:
         """Resume the paused music player."""
         if not self._guild.voice_client.is_paused():
             return
         self._guild.voice_client.resume()
-        self.player_is_paused = False
 
     def next_song(self) -> None:
         """Skip the current song."""
         self._guild.voice_client.stop()
+        self.current = None
 
     def stop(self) -> None:
         """Destroy the current player."""
@@ -226,6 +264,7 @@ class Music(Base):
             with suppress(discord.HTTPException, discord.NotFound):
                 await self.player.np.delete()
         if isinstance(self.player, MusicPlayer):
+            self.player.stop()
             self.player = None
         if isinstance(guild.voice_client, discord.VoiceProtocol):
             await guild.voice_client.disconnect()
@@ -236,10 +275,12 @@ class Music(Base):
             raise commands.UserInputError(f"You have to run command in the {ctx.bot.settings.music_chan} channel")
         return True
 
-    def gen_yt_select_menu(self, search: str) -> discord.SelectMenu:
+    def gen_yt_select_menu(self, search: str) -> Optional[discord.SelectMenu]:
         """Generate a discord.SelectMenu using Youtube search results from youtubesearchpython."""
         videos_search = VideosSearch(search, limit=10).result()
         videos_search = videos_search.get("result", [])
+        if not videos_search:
+            return None
         results = [
             discord.SelectOption(
                 label=f"{video.get('title', '')}"[:25],
@@ -267,16 +308,6 @@ class Music(Base):
             min_values=1,
         )
 
-    @retry(retry_on_exception=retry_if_exception)
-    async def youtube_dl_source(
-        self,
-        ctx: commands.Context,
-        search: str,
-        loop: asyncio.AbstractEventLoop,
-    ) -> dict:
-        """Stream Music from search url."""
-        return await YTDLSource.create_source(ctx, search, loop)
-
     @commands.command(
         name="play",
         aliases=["yt", "p", "pl", "s", "search"],
@@ -299,6 +330,10 @@ class Music(Base):
         if not YT_URL_RE.match(search):
             self.logger.info("Search query: %s", search)
             select_songs = self.gen_yt_select_menu(search)
+            if not select_songs:
+                with suppress(discord.HTTPException, discord.NotFound):
+                    await ctx.message.delete()
+                    return
             msg_with_selects = await ctx.reply(
                 title=f"Youtube search results for {search}:",
                 components=[[select_songs]],
@@ -311,12 +346,14 @@ class Music(Base):
             with suppress(discord.HTTPException, discord.NotFound):
                 await msg_with_selects.delete()
             if select_menu.values[0] == "_quit":
+                with suppress(discord.HTTPException, discord.NotFound):
+                    await ctx.message.delete()
                 return
             search = select_menu.values[0]
         with suppress(discord.HTTPException, discord.NotFound):
             await ctx.message.delete()
         player = self.get_player(ctx)
-        source = await self.youtube_dl_source(ctx, search, self.bot.loop)
+        source = await YTDLSource.create_source(ctx, search, self.bot.loop)
         if not source:
             return
         await player.queue.put(source)
@@ -325,10 +362,10 @@ class Music(Base):
                 await player.np.delete()
             await player.now_playing()
         with suppress(asyncio.TimeoutError):
-            await self.bot.wait_for("player_play_button", timeout=1)
-            await self.bot.wait_for("player_pause_button", timeout=1)
-            await self.bot.wait_for("player_stop_button", timeout=1)
-            await self.bot.wait_for("player_next_button", timeout=1)
+            await self.bot.wait_for("player_play_button", timeout=2)
+            await self.bot.wait_for("player_pause_button", timeout=2)
+            await self.bot.wait_for("player_stop_button", timeout=2)
+            await self.bot.wait_for("player_next_button", timeout=2)
 
     @commands.Cog.on_click(custom_id="player_play_button")
     async def player_play(self, i: discord.Interaction, button) -> None:
@@ -350,7 +387,7 @@ class Music(Base):
         if not self.player:
             return
         self.player.pause()
-        embed = self.player.player_embed(title="Music Paused", color=discord.Color.light_grey())
+        embed = self.player.player_embed()
         if not embed:
             return
         components = self.player.player_components()

@@ -8,6 +8,7 @@ import discord
 import pytz
 import youtube_dl
 from discord.ext import commands
+from retrying import retry
 
 TZ = pytz.timezone("Europe/Paris")
 
@@ -32,6 +33,11 @@ ffmpeg_options = {
     "options": "-vn",
 }
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
+
+
+def retry_if_exception(exception):
+    """Retry if compat_HTTPError is raised."""
+    return isinstance(exception, youtube_dl.compat.compat_HTTPError)
 
 
 class YTDLSource(discord.PCMVolumeTransformer):
@@ -84,6 +90,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         }
 
     @classmethod
+    @retry(retry_on_exception=retry_if_exception)
     async def regather_stream(cls, data: dict, loop: asyncio.AbstractEventLoop) -> discord.FFmpegPCMAudio:
         """Used for preparing a stream.
 
