@@ -1,14 +1,16 @@
 # Built-in modules
 import asyncio
+import io
 from datetime import datetime, timedelta
 from functools import partial
+from typing import Union
 
 # External modules
 import discord
 import pytz
 import youtube_dl
 from discord.ext import commands
-from retrying import retry
+from tenacity import retry, retry_if_exception_type
 
 TZ = pytz.timezone("Europe/Paris")
 
@@ -35,20 +37,16 @@ ffmpeg_options = {
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
 
-def retry_if_exception(exception):
-    """Retry if compat_HTTPError is raised."""
-    return isinstance(exception, youtube_dl.compat.compat_HTTPError)
-
-
 class YTDLSource(discord.PCMVolumeTransformer):
     """Create a discord.PCMVolumeTransformer using youtube_dl."""
 
-    def __init__(self, source: discord.AudioSource, data: dict, requester: str):
+    def __init__(self, source: Union[str, io.BufferedIOBase], data: dict, requester: str):
         super().__init__(source)
         self.webpage_url: str = data.get("webpage_url", "")
         self.requester: str = requester
         self.title: str = data.get("title", "")
         self.duration: str = str(timedelta(seconds=data.get("duration", 0)))
+        self.duration_sec: int = int(data.get("duration", 0))
         self.thumbnail: str = data.get("thumbnail", "")
         # YTDL info dicts (data) have other useful information you might want
         # https://github.com/rg3/youtube-dl/blob/master/README.md
@@ -61,43 +59,49 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return self.__getattribute__(item)
 
     @classmethod
-    async def create_source(cls, ctx: commands.Context, search: str, loop: asyncio.AbstractEventLoop) -> dict:
+    async def create_source(cls, ctx: commands.Context, url: str, loop: asyncio.AbstractEventLoop) -> dict:
         """Add `search` url to queue."""
         loop = loop or asyncio.get_event_loop()
-        to_run = partial(ytdl.extract_info, url=search, download=False)
+        to_run = partial(ytdl.extract_info, url=url, download=False)
         data = await loop.run_in_executor(None, to_run)
         if "entries" in data:
             # take first item from a playlist
             data = data["entries"][0]
         title = data.get("title", "no_title")
-        url = data.get("webpage_url", "no_url")
+        _url = data.get("webpage_url", "no_url")
         duration = str(timedelta(seconds=data.get("duration", 0)))
+        duration_sec: int = int(data.get("duration", 0))
         thumbnail = data.get("thumbnail", "no_thumbnail")
         embed = discord.Embed(
             title=f"Music added by {ctx.author}",
-            description=f"[{title}]({url}) - {duration}",
+            description=f"[{title}]({_url}) - {duration}",
             color=discord.Color.blue(),
         )
         embed.set_thumbnail(url=thumbnail)
         embed.timestamp = datetime.now(tz=TZ)
         await ctx.send(embed=embed)
         return {
-            "webpage_url": url,
+            "url": _url,
             "requester": ctx.author,
             "title": title,
             "duration": duration,
+            "duration_sec": duration_sec,
             "thumbnail": thumbnail,
         }
 
     @classmethod
-    @retry(retry_on_exception=retry_if_exception)
-    async def regather_stream(cls, data: dict, loop: asyncio.AbstractEventLoop) -> discord.FFmpegPCMAudio:
+    @retry(retry=retry_if_exception_type(Exception))
+    async def regather_stream(cls, data: dict, loop: asyncio.AbstractEventLoop) -> "YTDLSource":
         """Used for preparing a stream.
 
         Since Youtube Streaming links expire.
         """
         loop = loop or asyncio.get_event_loop()
         requester = data.get("requester", "no_requester")
-        to_run = partial(ytdl.extract_info, url=data.get("webpage_url", "no_url"), download=False)
+        to_run = partial(ytdl.extract_info, url=data.get("url", "no_url"), download=False)
         data = await loop.run_in_executor(None, to_run)
-        return cls(discord.FFmpegPCMAudio(data.get("url", "no_url")), data=data, requester=requester)
+        return cls(
+            source=discord.FFmpegPCMAudio(data.get("url", "no_url")),
+            data=data,
+            requester=requester,
+        )

@@ -1,5 +1,6 @@
 # Built-in modules
 import logging
+from contextlib import suppress
 
 # External modules
 import discord
@@ -61,6 +62,10 @@ class Rbot(commands.Bot):
         """Cleanup things when bot is stopping."""
         LOGGER.warning("Shutdown in progress..")
         if self.cogs["Music"] and isinstance(self.cogs["Music"].player, MusicPlayer):
+            if isinstance(self.cogs["Music"].player.np, discord.Message):
+                with suppress(discord.HTTPException, discord.NotFound):
+                    # We are no longer playing this song...
+                    await self.cogs["Music"].player.np.delete()
             await self.cogs["Music"].player.destroy(self.guild)
         await self.status_chan.send("Bye bye.. 💔")
 
